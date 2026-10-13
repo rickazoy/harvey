@@ -2,7 +2,7 @@ name: Harvey Real Estate Adapter CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, feat/prorealtorai-lead-intelligence-20261013]
   push:
     branches: [main]
 
