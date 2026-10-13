@@ -543,6 +543,64 @@ def cmd_sending(args):
     asyncio.run(_run())
 
 
+
+def cmd_prorealtorai(args):
+    """Qualify Harvey's prospects and optionally hand approved records to ProRealtorAI.
+
+    This never sends emails. A live push requires BOTH an approved business
+    sourcing review and explicit batch approval; the receiving server
+    independently verifies an HMAC and publishes only to its review queue.
+    """
+    from harvey.export import collect_prospects
+    from harvey.realestate.bridge import build_batch, send_batch
+    from harvey.state import StateManager
+    import json
+
+    if args.segment != "brokerage_b2b":
+        print("Consumer leads must come through the first-party consent API; not this B2B export.")
+        sys.exit(2)
+    if args.send and (not args.approve_source or not args.approve_batch):
+        print("A live CRM handoff requires --approve-source and --approve-batch.")
+        sys.exit(2)
+
+    async def _run():
+        state = StateManager()
+        await state.init_db()
+        records = await collect_prospects(
+            state, email_statuses=["verified"], min_score=args.min_score,
+            statuses=["new","queued"], include_all=False,
+        )
+        normalized = [{
+            **row,
+            "company": row.get("company_name",""),
+            "source_url": row.get("website",""),
+            "personalization_notes": row.get("personalization",""),
+        } for row in records]
+        batch = build_batch(normalized, segment="brokerage_b2b",
+            source_permission=args.approve_source,
+            sender_company="ProRealtorAI")
+        if not batch:
+            print("No qualifying prospects found (verified email + new/queued status).")
+            return
+        if args.out:
+            with open(args.out, "w", encoding="utf-8") as fh:
+                json.dump(batch, fh, indent=2, ensure_ascii=False)
+            print(f"Saved {len(batch)} prospect review records to {args.out}. Protect this PII file.")
+        eligible = sum(1 for record in batch if record["qualification"]["ready_for_review"])
+        print(f"Prepared {len(batch)} prospects, {eligible} qualifying for human CRM review.")
+        if args.send:
+            if eligible == 0:
+                print("No records meet the documented source and decision-maker criteria.")
+                sys.exit(2)
+            # Never push disqualified / suppressed prospects to a live CRM.
+            selected = [r for r in batch if r["qualification"]["ready_for_review"]]
+            response = await send_batch(selected)
+            print(f"CRM intake accepted: {response.get('accepted',0)}. "
+                  "Nurture messages remain pending human review.")
+
+    asyncio.run(_run())
+
+
 def main():
     from harvey.paths import PROJECT_ROOT
     project_root = str(PROJECT_ROOT)
@@ -600,6 +658,22 @@ def main():
     sub.add_argument("--status", default="", help="Comma-separated pipeline statuses (e.g. new,queued)")
     sub.add_argument("--all", action="store_true", help="Export everything, no filters")
     sub.set_defaults(func=cmd_export)
+
+    # harvey prorealtorai — approved export of brokerage buying contacts.
+    sub = subparsers.add_parser("prorealtorai",
+        help="Create ProRealtorAI qualified brokerage leads and review-only drafts")
+    sub.add_argument("--segment", choices=["brokerage_b2b","consumer_real_estate"],
+        default="brokerage_b2b")
+    sub.add_argument("--min-score", type=int, default=0)
+    sub.add_argument("--out", default="",
+        help="Optional local JSON export; contains PII, protect/delete after use")
+    sub.add_argument("--approve-source", action="store_true",
+        help="Attest that business contact sourcing and intended use were reviewed")
+    sub.add_argument("--approve-batch", action="store_true",
+        help="Confirm manual review and CRM intake of this entire qualified batch")
+    sub.add_argument("--send", action="store_true",
+        help="POST HMAC-signed prospects to the CRM review inbox; NEVER send mail")
+    sub.set_defaults(func=cmd_prorealtorai)
 
     # harvey gmail auth|test
     sub = subparsers.add_parser("gmail", help="Gmail provider setup")
