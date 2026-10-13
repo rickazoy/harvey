@@ -601,6 +601,96 @@ def cmd_prorealtorai(args):
     asyncio.run(_run())
 
 
+
+def cmd_consumer(args):
+    """Qualify broker-owned first-party inquiries and prepare nurture plans.
+
+    This command is for approved server-side imports, not people-scraping.
+    Every record must carry consent evidence. Live handoff requires separate
+    approved-source and approved-batch attestations and a tenant signing key.
+    It never sends emails, texts, DMs or calls.
+    """
+    import json
+    import os
+    import uuid
+    from collections import Counter
+
+    from harvey.realestate.consumer import ConsumerLead
+    from harvey.realestate.consumer_bridge import (
+        build_consumer_batch, send_consumer_batch,
+    )
+
+    try:
+        brokerage_id = str(uuid.UUID(args.brokerage_id))
+    except (ValueError, AttributeError) as exc:
+        raise ValueError("--brokerage-id must be an authorized brokerage UUID") from exc
+    if not args.brokerage_name or not args.brokerage_name.strip():
+        raise ValueError("--brokerage-name is required for factual nurture drafts")
+    source_codes = {v.strip() for v in args.allowed_source.split(",") if v.strip()}
+    if not source_codes:
+        raise ValueError("Explicit --allowed-source is required")
+    if args.send and not (args.approve_source and args.approve_batch):
+        raise ValueError("Live intake requires --approve-source AND --approve-batch")
+    if args.send and not os.getenv("PROREALTORAI_CONSUMER_SIGNING_KEY"):
+        raise ValueError("Provisioned PROREALTORAI_CONSUMER_SIGNING_KEY required")
+    with open(args.input, encoding="utf-8") as handle:
+        raw = json.load(handle)
+    if not isinstance(raw, list) or not 1 <= len(raw) <= 25:
+        raise ValueError("Input must be a JSON array of 1–25 first-party inquiries")
+    leads = [ConsumerLead.model_validate(item) for item in raw]
+    records = build_consumer_batch(
+        leads, brokerage_id=brokerage_id,
+        allowed_sources=source_codes,
+        brokerage_name=args.brokerage_name,
+    )
+    stages = Counter(row["assessment"]["tier"] for row in records)
+    blocking = Counter(row["nurture_plan"]["status"] for row in records)
+    print(
+        f"\n  Buyer/seller inquiry review: {len(records)} records; "
+        + ", ".join(f"{key}={count}" for key,count in sorted(stages.items()))
+    )
+    print("  Nurture status: " +
+          ", ".join(f"{key}={count}" for key,count in sorted(blocking.items())))
+    print("  No emails, SMS, voice calls or DMs have been sent.")
+
+    if args.out:
+        # Prospect PII needs private file permissions, never overwrite an
+        # existing review file with potentially different consent evidence.
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        with os.fdopen(os.open(args.out, flags, 0o600), "w", encoding="utf-8") as handle:
+            json.dump(records,handle,indent=2,ensure_ascii=False)
+        print("  Saved protected review data to " + args.out)
+
+    if args.send:
+        response = asyncio.run(send_consumer_batch(records))
+        print(
+            "  Broker-scoped CRM intake accepted " + str(response.get("accepted",0))
+            + " inquiry records. Nurture messages remain approval-only."
+        )
+
+
+
+def cmd_lead_offer(args):
+    """Create a review-only buyer/seller lead capture campaign."""
+    import json
+    from harvey.realestate.acquisition import create_lead_generation_campaign
+    offer = create_lead_generation_campaign(
+        args.kind, brokerage_name=args.brokerage_name,
+        owned_site_origin=args.site_origin,
+    )
+    content = json.dumps(offer.to_dict(), indent=2, ensure_ascii=False)
+    if args.out:
+        from pathlib import Path
+        target = Path(args.out)
+        if target.exists():
+            raise ValueError("Refusing to overwrite an existing campaign review file")
+        target.write_text(content + "\n", encoding="utf-8")
+        print("Saved draft lead-generation campaign to " + str(target))
+    else:
+        print(content)
+    print("Campaign is DRAFT only. Nothing was published or sent.")
+
+
 def main():
     from harvey.paths import PROJECT_ROOT
     project_root = str(PROJECT_ROOT)
@@ -658,6 +748,42 @@ def main():
     sub.add_argument("--status", default="", help="Comma-separated pipeline statuses (e.g. new,queued)")
     sub.add_argument("--all", action="store_true", help="Export everything, no filters")
     sub.set_defaults(func=cmd_export)
+
+    # Lead-generating owned-site forms (never invent a consumer contact).
+    sub = subparsers.add_parser("lead-offer",
+        help="Create a draft buyer/seller lead capture campaign for an owned website")
+    sub.add_argument("--kind", required=True, choices=[
+        "buyer_search","showing_request","open_house_rsvp",
+        "seller_valuation","seller_consultation",
+    ])
+    sub.add_argument("--brokerage-name", required=True)
+    sub.add_argument("--site-origin", required=True)
+    sub.add_argument("--out", default="",
+        help="Optional JSON draft file to review before publishing")
+    sub.set_defaults(func=cmd_lead_offer)
+
+    # harvey consumer: authorized first-party buyer/seller inquiry importer.
+    sub = subparsers.add_parser(
+        "consumer",
+        help="Qualify buyer/seller inquiries and prepare reviewed nurture drafts",
+    )
+    sub.add_argument("--input", required=True,
+        help="JSON array of signed-source first-party lead/consent records")
+    sub.add_argument("--brokerage-id", required=True,
+        help="Authorized brokerage UUID (receiver independently verifies tenant)")
+    sub.add_argument("--brokerage-name", required=True,
+        help="Verified brokerage display name used in draft templates")
+    sub.add_argument("--allowed-source", required=True,
+        help="Comma-separated explicitly approved inquiry sources")
+    sub.add_argument("--out", default="",
+        help="Optional private JSON review export (contains consumer PII)")
+    sub.add_argument("--approve-source", action="store_true",
+        help="Affirm source license, consent disclosures and first-party origin")
+    sub.add_argument("--approve-batch", action="store_true",
+        help="Affirm that each prospect record was reviewed for ingestion")
+    sub.add_argument("--send", action="store_true",
+        help="Submit tenant-signed batch to CRM inbox (does not send messages)")
+    sub.set_defaults(func=cmd_consumer)
 
     # harvey prorealtorai — approved export of brokerage buying contacts.
     sub = subparsers.add_parser("prorealtorai",

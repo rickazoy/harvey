@@ -27,7 +27,7 @@ PROBLEM_TERMS = (
 )
 CONSUMER_POSITIVE_SOURCES = frozenset((
     "first_party_idx", "open_house_form", "buyer_registration",
-    "seller_valuation", "agent_referral_with_consent",
+    "seller_valuation", "seller_consultation_form", "agent_referral_with_consent",
 ))
 
 @dataclass(frozen=True)
