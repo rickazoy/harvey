@@ -1,6 +1,9 @@
 """Brain — wraps Claude Code headless mode. Harvey's thinking engine."""
 
 import asyncio
+import os
+
+import httpx
 import json
 import logging
 import re
@@ -56,6 +59,15 @@ class Brain:
         ``agent``/``task`` label the call in the usage_events ledger so the
         dashboard can attribute tokens and cost to specific work.
         """
+        if os.getenv("HARVEY_BRAIN_PROVIDER", "claude_cli") == "anthropic_api":
+            return await self._think_anthropic_api(
+                prompt, agent=agent, task=task, timeout=timeout,
+                max_retries=max_retries,
+            )
+        if os.getenv("HARVEY_BRAIN_PROVIDER", "claude_cli") != "claude_cli":
+            logger.error("Unsupported HARVEY_BRAIN_PROVIDER; refusing to infer a model backend")
+            return ""
+
         cmd = [
             "claude", "-p", prompt,
             # JSON output carries exact token/cost accounting per call.
@@ -161,6 +173,81 @@ class Brain:
             f"Brain call failed after {max_retries + 1} attempts. "
             f"Last error: {str(last_error)[:200]}"
         )
+        return ""
+
+    async def _think_anthropic_api(
+        self, prompt: str, *, agent: str, task: str,
+        timeout: float, max_retries: int,
+    ) -> str:
+        """Hosted-safe Anthropic API backend; no user Claude subscription session.
+
+        This uses explicit API credentials and normal API billing. Never
+        transmits CLI authentication or relies on a user's Max subscription.
+        """
+        key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+        model = os.getenv("HARVEY_ANTHROPIC_MODEL", "claude-sonnet-4-6")
+        if not key:
+            logger.error("ANTHROPIC_API_KEY is required for hosted Harvey")
+            return ""
+        if not model.startswith("claude-"):
+            logger.error("Invalid HARVEY_ANTHROPIC_MODEL")
+            return ""
+        max_tokens = max(256, min(int(os.getenv("HARVEY_API_MAX_OUTPUT_TOKENS", "2048")), 8192))
+        max_retries = max(0, min(max_retries, 2))
+        for attempt in range(max_retries + 1):
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    response = await client.post(
+                        "https://api.anthropic.com/v1/messages",
+                        headers={
+                            "x-api-key": key,
+                            "anthropic-version": "2023-06-01",
+                            "content-type": "application/json",
+                        },
+                        json={"model": model, "max_tokens": max_tokens,
+                              "messages": [{"role": "user", "content": prompt}]},
+                    )
+                if response.status_code in (401, 403, 400):
+                    logger.error("Anthropic API rejected request (%s)", response.status_code)
+                    return ""
+                if response.status_code not in (200,):
+                    if attempt < max_retries and (
+                        response.status_code in (408, 429) or response.status_code >= 500
+                    ):
+                        await asyncio.sleep(RETRY_BASE_DELAY * (attempt+1))
+                        continue
+                    logger.error("Anthropic API failed (%s)", response.status_code)
+                    return ""
+                data = response.json()
+                text_blocks = [
+                    block.get("text", "") for block in data.get("content", [])
+                    if block.get("type") == "text"
+                ]
+                answer = "".join(text_blocks).strip()
+                if not answer:
+                    return ""
+                try:
+                    await self.state.increment_usage()
+                    usage = data.get("usage") or {}
+                    await self.state.record_usage_event(
+                        agent=agent, task=task or "hosted_api",
+                        session_id=data.get("id",""),
+                        duration_ms=0, num_turns=1, is_error=False,
+                        source="anthropic_api",
+                        model=model,
+                        input_tokens=int(usage.get("input_tokens") or 0),
+                        output_tokens=int(usage.get("output_tokens") or 0),
+                        cache_read_tokens=int(usage.get("cache_read_input_tokens") or 0),
+                        cache_creation_tokens=int(usage.get("cache_creation_input_tokens") or 0),
+                        cost_usd=0.0,  # Not a price assertion; actual billing reconciled externally.
+                    )
+                except Exception as error:
+                    logger.warning("Hosted usage metering failed: %s", error)
+                return answer
+            except (httpx.TimeoutException, httpx.TransportError) as error:
+                logger.warning("Hosted Anthropic request unavailable: %s", type(error).__name__)
+                if attempt < max_retries:
+                    await asyncio.sleep(RETRY_BASE_DELAY * (attempt+1))
         return ""
 
     @staticmethod
@@ -302,6 +389,11 @@ class Brain:
         Fallback when that endpoint is unavailable: Harvey's own call
         counter against max_daily_calls.
         """
+        if os.getenv("HARVEY_BRAIN_PROVIDER") == "anthropic_api":
+            # Hosted calls have API billing and no Claude subscription quota.
+            # Apply the explicit call-count cap until full price metering ships.
+            cap = max(1, min(int(os.getenv("HARVEY_API_MAX_DAILY_CALLS", "80")), 500))
+            return (await self.check_usage()) < min(cap, max_daily_calls)
         if max_percent is not None:
             try:
                 windows = await self.quota.get_utilization()
