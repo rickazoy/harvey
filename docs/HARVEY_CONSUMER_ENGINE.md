@@ -19,6 +19,28 @@ IMPORTANT: Public property data is NOT a consumer contact. Harvey's business
 web scrapers are never reused to harvest homeowner identities or infer email
 consent. The CRM will decline inputs lacking first-party provenance.
 
+## Inbound lead generation campaign drafts
+
+Harvey can prepare lead-capture offers for approved brokerage websites.
+It does not manufacture people, collect private contact details or deploy ads
+without brokerage consent.
+
+  harvey lead-offer --kind buyer_search
+    --brokerage-name "Example Brokerage"
+    --site-origin "https://homes.example.com"
+    --out ./buyer-campaign.json
+
+  harvey lead-offer --kind seller_valuation
+    --brokerage-name "Example Brokerage"
+    --site-origin "https://homes.example.com"
+    --out ./seller-campaign.json
+
+Other supported drafts: showing_request, open_house_rsvp and
+seller_consultation. Every campaign is marked pending_broker_approval and
+specifies the form and consent evidence it must collect. An approved
+website builder integration and anti-bot/consent capture implementation
+are still required before actual traffic can use these funnels.
+
 ## Client records
 
 Use a JSON array containing 1–25 strictly validated ConsumerLead objects,
