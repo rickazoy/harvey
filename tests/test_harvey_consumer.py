@@ -232,3 +232,62 @@ async def test_consumer_bridge_requires_positive_server_ack(monkeypatch):
     with pytest.raises(ValueError,match="not confirmed"):
         await send_consumer_batch([{"lead":{}}],integration_id=INTEGRATION,
             endpoint="https://broker.example/ingest",signing_key="0"*64)
+
+
+def test_authorized_property_signals_produce_campaign_opportunities_not_contacts():
+    from harvey.realestate.property_opportunities import (
+        PropertyMarketSignal, evaluate_property_signal,
+    )
+    signal = PropertyMarketSignal(
+        source_type="licensed_mls_feed",
+        source_code="metro_mls",
+        source_record_key="record-001",
+        source_url="https://mls.example/listings/record-001",
+        source_license_reference="agreement-2026-001",
+        broker_licensed_use_verified=True,
+        signal_type="stale_rental",
+        city="Tampa",
+        state="FL",
+        observed_at=NOW-timedelta(hours=1),
+        days_on_market=195,
+    )
+    with pytest.raises(ValueError):
+        evaluate_property_signal(signal, licensed_source_codes=set(),now=NOW)
+    opportunity = evaluate_property_signal(
+        signal, licensed_source_codes={"metro_mls"},now=NOW)
+    assert opportunity.priority == "medium"
+    assert opportunity.recommended_acquisition_type == "seller_valuation"
+    assert opportunity.owner_contact_authorized is False
+    assert opportunity.personally_identifying_contact_data is False
+    assert opportunity.status == "pending_broker_review"
+    assert "No direct owner outreach" in opportunity.next_action
+
+
+def test_stale_or_unlicensed_property_signals_fail_closed():
+    from harvey.realestate.property_opportunities import (
+        PropertyMarketSignal, evaluate_property_signal,
+    )
+    data = {
+        "source_type":"licensed_mls_feed",
+        "source_code":"metro_mls",
+        "source_record_key":"record-002",
+        "source_url":"https://mls.example/listings/record-002",
+        "source_license_reference":"agreement-2026-001",
+        "broker_licensed_use_verified":True,
+        "signal_type":"stale_rental",
+        "city":"Tampa",
+        "state":"FL",
+        "observed_at":NOW-timedelta(hours=2),
+        "days_on_market":20,
+    }
+    with pytest.raises(ValueError):
+        evaluate_property_signal(PropertyMarketSignal(**data),
+            licensed_source_codes={"metro_mls"},now=NOW)
+    with pytest.raises(ValueError):
+        evaluate_property_signal(PropertyMarketSignal(
+            **{**data,"days_on_market":200,"broker_licensed_use_verified":False}),
+            licensed_source_codes={"metro_mls"},now=NOW)
+    with pytest.raises(ValueError):
+        evaluate_property_signal(PropertyMarketSignal(
+            **{**data,"days_on_market":200,"observed_at":NOW-timedelta(days=100)}),
+            licensed_source_codes={"metro_mls"},now=NOW)
