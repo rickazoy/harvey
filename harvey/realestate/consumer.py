@@ -110,7 +110,13 @@ class ConsumerLead(BaseModel):
     @field_validator("first_name", "last_name")
     @classmethod
     def normal_name(cls, value: str) -> str:
-        return value.strip()
+        value = value.strip()
+        if not value and cls.__name__ == "ConsumerLead":
+            # This validator handles both first and optional last names.
+            # First-name nonemptiness is independently checked by the
+            # model validator to allow genuinely single-name consumers.
+            return value
+        return value
 
     @field_validator("preferred_cities", "property_types")
     @classmethod
@@ -124,12 +130,13 @@ class ConsumerLead(BaseModel):
 
     @model_validator(mode="after")
     def consistency(self) -> "ConsumerLead":
-        if self.status == "opted_out":
-            # The classifier will also suppress, but the source record remains
-            # available to record the contact's do-not-contact choice.
-            return self
-        if not self.email and not self.phone:
+        # Opt-outs may arrive with an event identifier but no reachable
+        # destination. All other validation still applies to their
+        # provenance, timestamps and consumer-expressed inquiry type.
+        if self.status != "opted_out" and not self.email and not self.phone:
             raise ValueError("A buyer/seller inquiry needs a reply address or phone")
+        if not self.first_name:
+            raise ValueError("First name is required")
         if self.consent.captured_at > self.submitted_at:
             raise ValueError("Consent cannot be recorded after submission")
         if self.budget_min is not None and self.budget_max is not None:
