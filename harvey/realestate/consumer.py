@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 LeadKind = Literal["buyer", "seller"]
 LeadSource = Literal[
     "first_party_idx", "open_house_form", "buyer_registration",
-    "seller_valuation", "agent_referral_with_consent",
+    "seller_valuation", "seller_consultation_form", "agent_referral_with_consent",
 ]
 LeadStatus = Literal["new", "inquiry", "engaged", "meeting", "closed", "opted_out"]
 _EMAIL_DOMAIN_MARKER = "@"
