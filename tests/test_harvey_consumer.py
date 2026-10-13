@@ -156,6 +156,34 @@ def test_batched_leads_are_deduped_and_no_outbound_delivery_enabled():
     assert rows[0]["nurture_plan"]["steps"][0]["send_allowed"] is False
 
 
+def test_lead_generator_creates_only_reviewable_broker_owned_acquisition_offers():
+    from harvey.realestate.acquisition import create_lead_generation_campaign
+    for campaign_type, kind in (
+        ("buyer_search", "buyer"),
+        ("showing_request", "buyer"),
+        ("open_house_rsvp", "buyer"),
+        ("seller_valuation", "seller"),
+        ("seller_consultation", "seller"),
+    ):
+        campaign = create_lead_generation_campaign(
+            campaign_type, brokerage_name="Example Realty",
+            owned_site_origin="https://homes.example.net",
+        )
+        assert campaign.kind == kind
+        assert campaign.status == "pending_broker_approval"
+        assert campaign.channel == "brokerage_owned_website"
+        assert "consent" in campaign.approval_note.lower()
+        assert "disclosure_text" in campaign.consent_fields
+        assert "email_marketing" in campaign.consent_fields
+        assert campaign.call_to_action
+
+    with pytest.raises(ValueError):
+        create_lead_generation_campaign(
+            "seller_valuation", brokerage_name="Example Realty",
+            owned_site_origin="http://homes.example.net",
+        )
+
+
 def test_secret_is_derived_by_integration_and_key_epoch():
     master = "M" * 48
     key = derive_integration_key(master, INTEGRATION, key_epoch=1)
