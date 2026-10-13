@@ -49,7 +49,7 @@ CONTENT: dict[CampaignType, tuple[LeadKind, LeadSource, str, str, str]] = {
         "Request a market conversation",
     ),
     "seller_consultation": (
-        "seller", "agent_referral_with_consent",
+        "seller", "seller_consultation_form",
         "Thinking about selling?",
         "A local agent can discuss your priorities, preferred timeline, "
         "and the practical steps involved in preparing for a sale.",
