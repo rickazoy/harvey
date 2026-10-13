@@ -47,7 +47,7 @@ Use a JSON array containing 1–25 strictly validated ConsumerLead objects,
 including these required fields:
 
 - source: first_party_idx, open_house_form, buyer_registration,
-  seller_valuation, or agent_referral_with_consent
+  seller_valuation, seller_consultation_form, or agent_referral_with_consent
 - source_event_id: provider-stable original event identifier
 - source_account_id: exact source application account configured by broker
 - kind: buyer or seller
