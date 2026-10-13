@@ -669,6 +669,28 @@ def cmd_consumer(args):
         )
 
 
+
+def cmd_lead_offer(args):
+    """Create a review-only buyer/seller lead capture campaign."""
+    import json
+    from harvey.realestate.acquisition import create_lead_generation_campaign
+    offer = create_lead_generation_campaign(
+        args.kind, brokerage_name=args.brokerage_name,
+        owned_site_origin=args.site_origin,
+    )
+    content = json.dumps(offer.to_dict(), indent=2, ensure_ascii=False)
+    if args.out:
+        from pathlib import Path
+        target = Path(args.out)
+        if target.exists():
+            raise ValueError("Refusing to overwrite an existing campaign review file")
+        target.write_text(content + "\n", encoding="utf-8")
+        print("Saved draft lead-generation campaign to " + str(target))
+    else:
+        print(content)
+    print("Campaign is DRAFT only. Nothing was published or sent.")
+
+
 def main():
     from harvey.paths import PROJECT_ROOT
     project_root = str(PROJECT_ROOT)
@@ -726,6 +748,19 @@ def main():
     sub.add_argument("--status", default="", help="Comma-separated pipeline statuses (e.g. new,queued)")
     sub.add_argument("--all", action="store_true", help="Export everything, no filters")
     sub.set_defaults(func=cmd_export)
+
+    # Lead-generating owned-site forms (never invent a consumer contact).
+    sub = subparsers.add_parser("lead-offer",
+        help="Create a draft buyer/seller lead capture campaign for an owned website")
+    sub.add_argument("--kind", required=True, choices=[
+        "buyer_search","showing_request","open_house_rsvp",
+        "seller_valuation","seller_consultation",
+    ])
+    sub.add_argument("--brokerage-name", required=True)
+    sub.add_argument("--site-origin", required=True)
+    sub.add_argument("--out", default="",
+        help="Optional JSON draft file to review before publishing")
+    sub.set_defaults(func=cmd_lead_offer)
 
     # harvey consumer: authorized first-party buyer/seller inquiry importer.
     sub = subparsers.add_parser(
