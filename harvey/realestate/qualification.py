@@ -8,7 +8,6 @@ Protected characteristics and proxies must not affect qualification scores.
 from __future__ import annotations
 
 import hashlib
-import re
 from dataclasses import dataclass, asdict
 from typing import Any, Mapping
 
@@ -113,8 +112,8 @@ def qualify_prospect(
             reasons.append("Source URL recorded for verification")
         else:
             missing.append("Evidence URL")
-        ready = score >= 55 and not missing[:1] and source_permission
-        permission = "review_business_outreach" if source_permission else "unverified_source"
+        ready = (score >= 55 and not missing and source_permission)
+        permission = "review_business_outreach" if ready else "not_authorized"
     else:
         source = _value(prospect, "source")
         explicit = _true(prospect, "consent_to_contact")
