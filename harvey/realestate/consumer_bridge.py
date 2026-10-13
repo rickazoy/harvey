@@ -28,13 +28,17 @@ MAX_BATCH = 25
 MAX_PAYLOAD_BYTES = 160 * 1024
 
 
-def derive_integration_key(master_secret: str, integration_id: str) -> str:
-    """Secure ops-only provisioning helper. Never use in a browser."""
+def derive_integration_key(
+    master_secret: str, integration_id: str, *, key_epoch: int = 1,
+) -> str:
+    """Secure ops-only provisioning helper, never for a browser."""
     if len(master_secret) < 32:
         raise ValueError("Master secret must be at least 32 characters")
+    if not isinstance(key_epoch, int) or not 1 <= key_epoch <= 100_000:
+        raise ValueError("Integration key epoch must be a positive version")
     integration_id = str(uuid.UUID(integration_id))
     return hmac.new(master_secret.encode(),
-                    ("consumer.v1:" + integration_id).encode(),
+                    f"consumer.v1:{integration_id}:{key_epoch}".encode(),
                     hashlib.sha256).hexdigest()
 
 
