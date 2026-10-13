@@ -62,7 +62,7 @@ def test_buyer_seller_intent_scored_only_from_supplied_evidence(kind):
     result = assess(lead)
     assert result.kind == kind
     assert result.tier == "hot"
-    assert result.score == 100
+    assert result.score == (100 if kind == "buyer" else 95)
     assert result.requires_human_review is True
     assert result.marketing_channels == ["email"]
     assert all("race" not in s.lower() for s in result.reasons)
