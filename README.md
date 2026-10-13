@@ -1,5 +1,14 @@
 # Harvey
 
+> **ProRealtorAI fork:** Buyer and seller acquisition campaign drafts, verified first-party
+> consent ingestion, broker-scoped qualification and review-only nurturing are available
+> in this fork's experimental real-estate adapter. Read
+> [HARVEY_CONSUMER_ENGINE.md](docs/HARVEY_CONSUMER_ENGINE.md) before use.
+> Hosted/multi-tenant processing uses separately billed model API credentials,
+> not personal Claude CLI subscriptions. No real estate marketing is sent by
+> the adapter without further approved production integrations.
+
+
 **An autonomous sales agent that runs on your Claude Code subscription.**
 
 Harvey finds businesses worth selling to, learns something specific about each one, writes cold email that references it, sends it, reads the replies, and works the conversation toward a meeting. It runs on your machine, in a loop, on its own.
