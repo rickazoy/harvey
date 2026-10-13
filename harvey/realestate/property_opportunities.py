@@ -85,7 +85,8 @@ class PropertyOpportunity(BaseModel):
 
 
 def evaluate_property_signal(
-    signal: PropertyMarketSignal, *, now:datetime|None=None,
+    signal: PropertyMarketSignal, *, licensed_source_codes: set[str],
+    now:datetime|None=None,
 ) -> PropertyOpportunity:
     """Only verified feed/licensing evidence may create research opportunities.
 
@@ -93,7 +94,10 @@ def evaluate_property_signal(
     creditworthiness or economic hardship.
     """
     now=(now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    if not signal.broker_licensed_use_verified:
+    # The allowlist must come from the trusted National MLS Gateway or
+    # equivalent broker-signed provider configuration, never the raw record.
+    if (not signal.broker_licensed_use_verified or
+            signal.source_code not in licensed_source_codes):
         raise ValueError("Brokerage data use rights must be independently verified")
     if not signal.provider_record_is_active or not signal.source_data_fresh:
         raise ValueError("Inactive or stale market observations cannot be used")
