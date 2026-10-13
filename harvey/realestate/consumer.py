@@ -110,13 +110,7 @@ class ConsumerLead(BaseModel):
     @field_validator("first_name", "last_name")
     @classmethod
     def normal_name(cls, value: str) -> str:
-        value = value.strip()
-        if not value and cls.__name__ == "ConsumerLead":
-            # This validator handles both first and optional last names.
-            # First-name nonemptiness is independently checked by the
-            # model validator to allow genuinely single-name consumers.
-            return value
-        return value
+        return value.strip()
 
     @field_validator("preferred_cities", "property_types")
     @classmethod
